@@ -875,13 +875,14 @@ export function reconcileStreamedWithDb(
     resultIdx++;
   }
 
-  // Reposition inline clarify cards to their original chronological slot.
-  // A clarify card is renderer-only — it's never written to state.db, so it
-  // has no reconciliationKey and would otherwise be flushed to the suffix,
-  // landing *below* any agent content the gateway streamed after the user
-  // answered (the reverse of what the user saw live). Re-anchor each card
-  // immediately after the streamed message that preceded it.
-  return repositionClarifyCards(
+  // Reposition inline clarify/approval cards to their original chronological
+  // slot. Both are renderer-only — never written to state.db, so neither has
+  // a reconciliationKey and would otherwise be flushed to the suffix, landing
+  // *below* any agent content the gateway streamed after the user answered
+  // (the reverse of what the user saw live). Re-anchor each card immediately
+  // after the streamed message that preceded it. (W4-6: extended from
+  // clarify-only to also cover the new approval card, for the same reason.)
+  return repositionInteractiveCards(
     dropLossyStreamedReasoning(dedupeMessageIds(merged)),
     streamed,
   );
@@ -951,32 +952,33 @@ function dropLossyStreamedReasoning(
 }
 
 /**
- * Move `kind === "clarify"` cards from wherever the reconcile placed them back
- * to their streamed position: directly after the message that immediately
- * preceded them in `streamed`. Pure, order-preserving for all other rows.
+ * Move inline interactive cards (`kind === "clarify"` or `"approval"`) from
+ * wherever the reconcile placed them back to their streamed position:
+ * directly after the message that immediately preceded them in `streamed`.
+ * Pure, order-preserving for all other rows.
  */
-function repositionClarifyCards(
+function repositionInteractiveCards(
   merged: ChatMessage[],
   streamed: ReadonlyArray<ChatMessage>,
 ): ChatMessage[] {
-  const isClarify = (m: ChatMessage): boolean =>
-    "kind" in m && m.kind === "clarify";
-  if (!streamed.some(isClarify)) return merged;
+  const isCard = (m: ChatMessage): boolean =>
+    "kind" in m && (m.kind === "clarify" || m.kind === "approval");
+  if (!streamed.some(isCard)) return merged;
 
-  // Pull clarify cards out of the merged list; remember each card's streamed
-  // predecessor id so we can re-anchor it.
-  const cards = merged.filter(isClarify);
+  // Pull interactive cards out of the merged list; remember each card's
+  // streamed predecessor id so we can re-anchor it.
+  const cards = merged.filter(isCard);
   if (cards.length === 0) return merged;
-  const without = merged.filter((m) => !isClarify(m));
+  const without = merged.filter((m) => !isCard(m));
 
   const predecessorIdByCardId = new Map<string, string | null>();
   for (let i = 0; i < streamed.length; i++) {
     const m = streamed[i];
-    if (!isClarify(m)) continue;
-    // Nearest preceding non-clarify message in the streamed order.
+    if (!isCard(m)) continue;
+    // Nearest preceding non-card message in the streamed order.
     let predId: string | null = null;
     for (let j = i - 1; j >= 0; j--) {
-      if (!isClarify(streamed[j])) {
+      if (!isCard(streamed[j])) {
         predId = streamed[j].id;
         break;
       }

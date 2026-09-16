@@ -5459,6 +5459,99 @@ body:has(.shell-vibrant),
   margin-top: 2px;
 }
 
+/* Inline approval card (W4-6) — a mid-turn `approval.request`, distinct from
+   the legacy plain-text `.chat-approval-bar` convention (MessageRow.tsx),
+   which pattern-matches the agent's own reply text and only appears once a
+   turn has already finished. This one carries a real request_id and pauses
+   the run until answered. Reuses .chat-approval-btn's base look. */
+.chat-approval-card {
+  margin-top: 8px;
+  margin-bottom: 16px;
+  margin-left: 42px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning, #d97706);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 640px;
+}
+
+.chat-approval-message {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-approval-tool {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+}
+
+.chat-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-approval-approve {
+  background: var(--success);
+  color: #fff;
+}
+
+.chat-approval-approve:hover {
+  background: #16a34a;
+}
+
+.chat-approval-deny {
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.chat-approval-deny:hover {
+  background: var(--bg-hover);
+}
+
+.chat-approval-choice {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.chat-approval-choice:hover {
+  border-color: var(--accent, #2563eb);
+  background: var(--bg-hover);
+}
+
+.chat-approval-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.chat-approval-card--resolved {
+  opacity: 0.85;
+}
+
+.chat-approval-decision {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-base);
+}
+
+.chat-approval-error {
+  font-size: 12px;
+  color: var(--danger, #ef4444);
+  margin-top: 2px;
+}
+
 /* Override Tailwind preflight spacing inside agent bubbles */
 .chat-bubble-agent p {
   margin: 0 0 0.85em !important;

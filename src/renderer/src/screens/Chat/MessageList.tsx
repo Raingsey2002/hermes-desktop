@@ -3,7 +3,9 @@ import { HermesAvatar, MessageRow } from "./MessageRow";
 import type { AgentAvatarInfo } from "./MessageRow";
 import { ReasoningRow, ToolActivityGroup } from "./HistoryRow";
 import { ClarifyCard } from "./ClarifyCard";
+import { ApprovalCard } from "./ApprovalCard";
 import type {
+  ApprovalMessage,
   ChatMessage,
   ClarifyMessage,
   ToolCallMessage,
@@ -23,6 +25,8 @@ interface MessageListProps {
   onDeny: () => void;
   /** Mark an inline clarify card resolved once the user answers/skips. */
   onClarifyResolved: (requestId: string, answer: string) => void;
+  /** Mark an inline approval card resolved once the user decides (W4-6). */
+  onApprovalResolved: (requestId: string, decision: string) => void;
   /** Appearance of the agent this conversation is with, so idle avatars show
    *  the agent's profile picture instead of the loading gif. */
   agentAvatar?: AgentAvatarInfo;
@@ -72,6 +76,7 @@ export const MessageList = memo(function MessageList({
   onApprove,
   onDeny,
   onClarifyResolved,
+  onApprovalResolved,
   agentAvatar,
 }: MessageListProps): React.JSX.Element {
   // Bubbles with empty content are still hidden (live-stream placeholders).
@@ -148,6 +153,17 @@ export const MessageList = memo(function MessageList({
           key={msg.id}
           msg={msg as ClarifyMessage}
           onResolved={onClarifyResolved}
+        />,
+      );
+      continue;
+    }
+
+    if (k === "approval") {
+      rows.push(
+        <ApprovalCard
+          key={msg.id}
+          msg={msg as ApprovalMessage}
+          onResolved={onApprovalResolved}
         />,
       );
       continue;

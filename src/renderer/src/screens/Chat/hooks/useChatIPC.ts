@@ -271,6 +271,39 @@ export function useChatIPC({
       },
     );
 
+    // Same pattern as clarify above, for approval.request (W4-6). run-scoped
+    // via eventMatchesRun so a decision can never be delivered to — or a card
+    // rendered in — the wrong conversation.
+    const cleanupApproval = window.hermesAPI.onApprovalRequest(
+      (eventRunId, req) => {
+        if (!eventMatchesRun(eventRunId, runId)) return;
+        reasoningSegmentClosedRef.current = true;
+        setToolProgress(null);
+        setIsLoading(true);
+        setMessages((prev) => {
+          if (
+            prev.some(
+              (m) => m.kind === "approval" && m.requestId === req.requestId,
+            )
+          ) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              id: `approval-${req.requestId}`,
+              kind: "approval",
+              role: "agent",
+              requestId: req.requestId,
+              message: req.message,
+              tool: req.tool,
+              choices: Array.isArray(req.choices) ? req.choices : [],
+            },
+          ];
+        });
+      },
+    );
+
     const cleanupToolProgress = window.hermesAPI.onChatToolProgress(
       (eventRunId, tool) => {
         if (!eventMatchesRun(eventRunId, runId)) return;
@@ -361,6 +394,7 @@ export function useChatIPC({
       cleanupDone();
       cleanupError();
       cleanupClarify();
+      cleanupApproval();
       cleanupToolProgress();
       cleanupToolEvent();
       cleanupUsage();

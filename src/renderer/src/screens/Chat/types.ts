@@ -80,12 +80,35 @@ export interface ClarifyMessage {
   resolved?: boolean;
 }
 
+/**
+ * An inline confirmation/approval request from the agent (`approval.request`)
+ * — e.g. before running a flagged tool call. Rendered as a card with
+ * Approve/Deny controls (plus any extra `choices` the request carried, mirroring
+ * `ClarifyMessage`). Distinct from the legacy plain-text approval convention
+ * (`chat-approval-bar` in MessageRow.tsx, which pattern-matches the agent's own
+ * reply text for phrases like "do you want me to proceed") — this one carries a
+ * real gateway `request_id` and pauses the run until answered, instead of only
+ * appearing after a turn has already finished.
+ */
+export interface ApprovalMessage {
+  id: string;
+  kind: "approval";
+  role: "agent";
+  requestId: string;
+  message: string;
+  tool?: string;
+  choices: string[];
+  decision?: string;
+  resolved?: boolean;
+}
+
 export type ChatMessage =
   | ChatBubbleMessage
   | ReasoningMessage
   | ToolCallMessage
   | ToolResultMessage
-  | ClarifyMessage;
+  | ClarifyMessage
+  | ApprovalMessage;
 
 export interface ActiveTurn {
   turnId: string;

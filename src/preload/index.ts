@@ -817,6 +817,39 @@ const hermesAPI = {
   respondClarify: (requestId: string, answer: string): Promise<boolean> =>
     ipcRenderer.invoke("clarify-respond", { requestId, answer }),
 
+  /** The agent requested confirmation mid-turn (approval.request), typically
+   *  before running a flagged tool call. The renderer shows an inline card and
+   *  answers via `respondApproval` (W4-6). */
+  onApprovalRequest: (
+    callback: (
+      runId: string,
+      req: {
+        requestId: string;
+        message: string;
+        tool?: string;
+        choices: string[];
+      },
+    ) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      runId: string,
+      req: {
+        requestId: string;
+        message: string;
+        tool?: string;
+        choices: string[];
+      },
+    ): void => callback(runId, req);
+    ipcRenderer.on("chat-approval-request", handler);
+    return () => ipcRenderer.removeListener("chat-approval-request", handler);
+  },
+
+  /** Answer an inline approval card. `decision` is "deny" to reject; any other
+   *  value (typically "once") approves. */
+  respondApproval: (requestId: string, decision: string): Promise<boolean> =>
+    ipcRenderer.invoke("approval-respond", { requestId, decision }),
+
   // Gateway
   startGateway: (): Promise<GatewayStartResult> =>
     ipcRenderer.invoke("start-gateway"),

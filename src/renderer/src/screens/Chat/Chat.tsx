@@ -588,6 +588,22 @@ function Chat({
     [setMessages],
   );
 
+  // Same as handleClarifyResolved, for the approval card (W4-6). The gateway
+  // resumes the turn (or aborts, for a deny) from here, so loading stays
+  // active until the next onChatDone/onChatError.
+  const handleApprovalResolved = useCallback(
+    (requestId: string, decision: string) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.kind === "approval" && m.requestId === requestId
+            ? { ...m, decision, resolved: true }
+            : m,
+        ),
+      );
+    },
+    [setMessages],
+  );
+
   const handleClear = useCallback(() => {
     if (isLoading) {
       window.hermesAPI.abortChat(runId, connectionId);
@@ -998,6 +1014,7 @@ function Chat({
               onApprove={actions.handleApprove}
               onDeny={actions.handleDeny}
               onClarifyResolved={handleClarifyResolved}
+              onApprovalResolved={handleApprovalResolved}
               agentAvatar={agentAvatar}
             />
           )}

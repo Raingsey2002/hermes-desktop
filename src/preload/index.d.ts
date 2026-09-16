@@ -564,6 +564,18 @@ interface HermesAPI {
     ) => void,
   ) => () => void;
   respondClarify: (requestId: string, answer: string) => Promise<boolean>;
+  onApprovalRequest: (
+    callback: (
+      runId: string,
+      req: {
+        requestId: string;
+        message: string;
+        tool?: string;
+        choices: string[];
+      },
+    ) => void,
+  ) => () => void;
+  respondApproval: (requestId: string, decision: string) => Promise<boolean>;
 
   // Gateway
   startGateway: () => Promise<GatewayStartResult>;

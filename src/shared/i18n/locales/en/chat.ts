@@ -52,6 +52,16 @@ export default {
     skipped: "Skipped — Hermes decided",
     error: "Couldn't deliver your answer — the turn may have ended. Try again.",
   },
+  approval: {
+    defaultMessage: "Hermes wants to proceed and needs your confirmation.",
+    toolLabel: "Tool: {{tool}}",
+    approve: "Approve",
+    deny: "Deny",
+    approved: "Approved ({{decision}})",
+    denied: "Denied",
+    error:
+      "Couldn't deliver your decision — the turn may have ended. Try again.",
+  },
   thinking: "Thinking…",
   thought: "Thought",
   toolCall: "Tool call",

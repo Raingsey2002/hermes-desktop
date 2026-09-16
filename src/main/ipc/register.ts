@@ -128,6 +128,7 @@ import {
   notifyProfileSwitched,
   setSshRemoteApiKey,
   resolvePendingClarify,
+  resolvePendingApproval,
   clearAgentCapabilityEvidence,
   getAgentCapabilityEvidence,
   recordAgentCommandInventory,
@@ -1814,6 +1815,9 @@ export function registerIpcHandlers(context: IpcContext): void {
           onClarify: (req) => {
             safeSend("chat-clarify-request", req);
           },
+          onApproval: (req) => {
+            safeSend("chat-approval-request", req);
+          },
         },
         profile,
         resumeSessionId,
@@ -1859,6 +1863,20 @@ export function registerIpcHandlers(context: IpcContext): void {
       return resolvePendingClarify(
         payload?.requestId ?? "",
         payload?.answer ?? "",
+      );
+    },
+  );
+
+  // Renderer's decision on an inline approval card (W4-6). Resolves the
+  // pending gateway request for this request_id, which forwards the decision
+  // to approval.respond (dashboard transport) or POST .../approval (runs
+  // transport) — see registerPendingApproval in hermes.ts.
+  ipcMain.handle(
+    "approval-respond",
+    (_event, payload: { requestId: string; decision: string }) => {
+      return resolvePendingApproval(
+        payload?.requestId ?? "",
+        payload?.decision ?? "deny",
       );
     },
   );

@@ -1216,6 +1216,40 @@ export function clearPendingClarify(requestId: string): void {
   pendingClarify.delete(requestId);
 }
 
+/**
+ * Pending approval requests (`approval.request`), keyed by the gateway
+ * `request_id` — same bookkeeping shape as `pendingClarify` above. Before this,
+ * both transports that receive a structured `approval.request` mid-turn
+ * short-circuited it instead of asking the user: the dashboard transport
+ * auto-responded `{choice: "once", all: false}` unconditionally (W4-6), and the
+ * runs-transport aborted the run and fell back to a different transport,
+ * silently dropping the approval. Neither ever reached the renderer.
+ */
+const pendingApproval = new Map<string, (decision: string) => void>();
+
+export function registerPendingApproval(
+  requestId: string,
+  resolver: (decision: string) => void,
+): void {
+  pendingApproval.set(requestId, resolver);
+}
+
+/** Fire and remove the resolver for `requestId`. Returns true if one was waiting. */
+export function resolvePendingApproval(
+  requestId: string,
+  decision: string,
+): boolean {
+  const resolver = pendingApproval.get(requestId);
+  if (!resolver) return false;
+  pendingApproval.delete(requestId);
+  resolver(decision);
+  return true;
+}
+
+export function clearPendingApproval(requestId: string): void {
+  pendingApproval.delete(requestId);
+}
+
 export interface ChatCallbacks {
   onChunk: (text: string) => void;
   /** Streaming reasoning / thinking tokens, when the provider emits them
@@ -1247,6 +1281,18 @@ export interface ChatCallbacks {
   onClarify?: (req: {
     requestId: string;
     question: string;
+    choices: string[];
+  }) => void;
+  /** The agent requested confirmation mid-turn (`approval.request`), typically
+   *  before running a flagged tool call. The renderer shows an inline card
+   *  (Approve/Deny, plus any extra `choices`); the user's decision returns via
+   *  the `approval-respond` IPC handler, which resolves the pending request for
+   *  this `requestId` by calling `approval.respond` on the live gateway
+   *  client. */
+  onApproval?: (req: {
+    requestId: string;
+    message: string;
+    tool?: string;
     choices: string[];
   }) => void;
 }
@@ -1764,6 +1810,57 @@ function postRunStop(
   req.end();
 }
 
+/** POST the user's decision to the runs-transport approval endpoint
+ *  (`/v1/runs/{run_id}/approval`, gated by the `run_approval_response`
+ *  capability — see `run-stream.ts#supportsHermesRunsTransport`). Mirrors
+ *  `postRunStop`'s fire-and-forget shape; failures are surfaced to the caller
+ *  via the returned promise instead of being swallowed, since a dropped
+ *  approval response must not look like a delivered one. */
+function postRunApproval(
+  apiUrl: string,
+  profile: string | undefined,
+  runId: string,
+  requestId: string,
+  decision: string,
+  conn: ConnectionConfig = getConnectionConfig(),
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const url = `${apiUrl}/v1/runs/${encodeURIComponent(runId)}/approval`;
+    const requester = url.startsWith("https") ? https : http;
+    const bodyBuf = Buffer.from(
+      JSON.stringify({ request_id: requestId, decision }),
+      "utf-8",
+    );
+    const req = requester.request(url, {
+      method: "POST",
+      headers: getJsonApiHeaders(profile, bodyBuf, conn),
+      timeout: 10_000,
+    });
+    req.on("response", (res) => {
+      if ((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300) {
+        res.resume();
+        resolve();
+      } else {
+        let body = "";
+        res.on("data", (d) => (body += d.toString()));
+        res.on("end", () =>
+          reject(
+            new Error(
+              `Approval response rejected: ${res.statusCode} ${body.slice(0, 200)}`,
+            ),
+          ),
+        );
+      }
+    });
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("Approval response timed out."));
+    });
+    req.end(bodyBuf);
+  });
+}
+
 function sendMessageViaRuns(
   message: string,
   cb: ChatCallbacks,
@@ -1911,11 +2008,62 @@ function sendMessageViaRuns(
     }
 
     if (eventName === "approval.request") {
-      // The current renderer's approval controls are wired to the legacy chat
-      // flow and only appear after a response finishes. A run pauses before it
-      // can finish, so fall back to the existing path instead of deadlocking
-      // the user on a hidden approval request.
-      stopRunAndFallback();
+      // W4-6 fix: this used to unconditionally stopRunAndFallback() — dropping
+      // the approval request instead of asking the user, on the theory that the
+      // renderer's (legacy, text-pattern) approval controls only appear after a
+      // turn finishes and a paused run has no finished text yet. That's true of
+      // the legacy convention, but the runs transport carries a real
+      // request_id and a dedicated /v1/runs/{run_id}/approval endpoint
+      // (run-stream.ts#supportsHermesRunsTransport) — surface it to the
+      // renderer like clarify.request, and answer through that endpoint.
+      const requestId =
+        typeof raw.request_id === "string" ? raw.request_id : "";
+      if (!requestId || !runId) {
+        // No id (or no run yet) to answer — stop rather than let the agent
+        // wait on an approval we can never resolve.
+        stopRunAndFallback();
+        return;
+      }
+      const currentRunId = runId;
+      registerPendingApproval(requestId, (decision: string) => {
+        void postRunApproval(
+          apiUrl,
+          profile,
+          currentRunId,
+          requestId,
+          decision,
+          conn,
+        ).catch((error) => {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          if (!hasContent) {
+            fallbackToChatCompletions();
+            return;
+          }
+          finish(message);
+        });
+      });
+      const message =
+        typeof raw.message === "string"
+          ? raw.message
+          : typeof raw.reason === "string"
+            ? raw.reason
+            : "";
+      const tool =
+        typeof raw.tool === "string"
+          ? raw.tool
+          : typeof raw.tool_name === "string"
+            ? raw.tool_name
+            : undefined;
+      cb.onApproval?.({
+        requestId,
+        message,
+        tool,
+        choices: Array.isArray(raw.choices)
+          ? raw.choices.map((c) => String(c))
+          : [],
+      });
+      return;
     }
   }
 
@@ -2192,28 +2340,62 @@ async function sendMessageViaTuiGateway(
     }
 
     if (event.type === "approval.request") {
-      // Match the existing local chat posture: Hermes One does not expose a
-      // mid-stream approval dialog, so answer the dashboard protocol once and
-      // keep the transcript focused on the resulting tool call/result events.
-      void client
-        .request(
-          "approval.respond",
-          {
-            session_id: activeSessionId,
-            choice: "once",
-            all: false,
-          },
-          30_000,
-        )
-        .catch((error) => {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          if (!hasGatewayOutput) {
-            startApiFallback(message);
-            return;
+      // W4-6 fix: this used to unconditionally answer `{choice: "once",
+      // all: false}` — approving whatever the agent wanted to do without ever
+      // asking the user, on the theory that "Hermes One does not expose a
+      // mid-stream approval dialog." It does now: surface the request to the
+      // renderer exactly like clarify.request below, and forward the user's
+      // real decision instead of a hardcoded one.
+      const payload = event.payload as
+        | {
+            request_id?: string;
+            message?: string;
+            reason?: string;
+            tool?: string;
+            tool_name?: string;
+            choices?: unknown;
           }
-          finish(message);
-        });
+        | undefined;
+      // This event has been observed with no request_id on the dashboard
+      // protocol (unlike clarify.request, which always carries one) — a
+      // synthetic per-session id still lets the pending-approval registry and
+      // renderer card work, while the actual approval.respond call below keeps
+      // the exact {session_id, choice, all} shape already proven to work,
+      // adding request_id only when the event actually supplied one.
+      const requestId = payload?.request_id || `session:${activeSessionId}`;
+      registerPendingApproval(requestId, (decision: string) => {
+        const approved = decision !== "deny";
+        void client
+          .request(
+            "approval.respond",
+            {
+              session_id: activeSessionId,
+              ...(payload?.request_id
+                ? { request_id: payload.request_id }
+                : {}),
+              choice: approved ? "once" : "deny",
+              all: false,
+            },
+            30_000,
+          )
+          .catch((error) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            if (!hasGatewayOutput) {
+              startApiFallback(message);
+              return;
+            }
+            finish(message);
+          });
+      });
+      cb.onApproval?.({
+        requestId,
+        message: payload?.message ?? payload?.reason ?? "",
+        tool: payload?.tool ?? payload?.tool_name,
+        choices: Array.isArray(payload?.choices)
+          ? payload.choices.map((c) => String(c))
+          : [],
+      });
       return;
     }
 
