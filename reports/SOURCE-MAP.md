@@ -41,4 +41,11 @@ Path + symbol anchors traced during this submission, grouped by layer per the as
 29. `src/renderer/src/screens/Chat/sessionHistory.ts#repositionInteractiveCards` (generalized from `repositionClarifyCards`) — history-reconcile ordering fix, now covering both clarify and approval cards.
 30. `src/renderer/src/screens/Chat/MessageRow.tsx` (`chat-approval-bar`, left unmodified) — the pre-existing legacy plain-text approval convention, distinct from the new structured card.
 
-31 real anchors total (assignment requires ≥18).
+## Agent runtime (read-only — outside this repo, cited for the trace, never modified)
+
+31. `~/.hermes/hermes-agent/tools/approval.py#_run_approval_gate` — the actual human-approval gate; the "gateway" branch is what blocks the agent thread until a real decision arrives.
+32. `~/.hermes/hermes-agent/tools/approval.py#register_gateway_notify` / `resolve_gateway_approval` — the per-session callback registration and unblock-the-waiting-thread contract Desktop's IPC responses are meant to drive.
+33. `~/.hermes/hermes-agent/tools/approval.py#_smart_approve` / `_get_smart_policy` — the auxiliary-LLM risk pre-filter (`approve`/`deny`/`escalate`) and its operator-customizable policy override, used during live testing to force a real escalation instead of a silent auto-approve.
+34. `~/.hermes/hermes-agent/hermes_cli/config_defaults.py` (`approvals` block) — confirms `mode: "smart"` is the actual default (not `"manual"`, which is only the in-code fallback when no config is present at all).
+
+34 real anchors total (assignment requires ≥18); 4 of these are read-only citations into the Agent-runtime layer the assignment's own execution boundary names, gathered during live debugging of W4-6's unresolved gap — not modified, since that layer is outside this repository.

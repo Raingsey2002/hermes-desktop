@@ -9,7 +9,7 @@ One report per task, each independently reviewable via its own git commit on the
 | W4-3 — Skill upload/import | [W4-3-skill-upload.md](./W4-3-skill-upload.md) | `97c89a8` | No — already fixed earlier this session; documented |
 | W4-4 — Local/remote skill paths | [W4-4-skill-paths.md](./W4-4-skill-paths.md) | `9a29066` | No — already fixed earlier this session; documented |
 | W4-5 — Skills selectable in chat | [W4-5-skill-selection.md](./W4-5-skill-selection.md) | `2448abf` | Yes — added the missing `SkillPicker.test.tsx` |
-| W4-6 — Agent confirmation UI | (see `git log` for `W4-6:` commit) | `a5e7f7b` | Yes — full fix, new code |
+| W4-6 — Agent confirmation UI | [W4-6-confirmation-ui.md](./W4-6-confirmation-ui.md) | `a5e7f7b` | Yes — real fix, but live testing found a second unresolved gap (see report) |
 
 [SOURCE-MAP.md](./SOURCE-MAP.md) — 31 path+symbol anchors across Desktop/shared-client/Gateway/runtime (assignment requires ≥18).
 
@@ -26,13 +26,14 @@ Tasks 1, 3, and 4's root causes were fixed **earlier in the same working session
 - [x] Skills page has a usable import/upload entry (W4-3).
 - [x] Skill discovery/invocation correctly scoped to local vs remote (W4-4).
 - [x] Skills selectable from the chat composer, runtime actually receives the choice (W4-5).
-- [x] Agent confirmation requests visible in Desktop, response returns to the correct session (W4-6).
-- [ ] **Local and remote backends tested live for Tasks 4 and 6.** Not done — this environment has no live remote/SSH-connected Hermes backend to exercise. Code-level guarantees (same client, `eventMatchesRun`/marker-path scoping) are documented per task; an actual live run against both backends is the one manual verification step still owed before submission.
+- [ ] **Agent confirmation requests visible in Desktop.** NOT confirmed — live testing (see W4-6-confirmation-ui.md) reproduced the agent genuinely blocking on a real approval gate, but the `ApprovalCard` never rendered and the underlying `onApprovalRequest` IPC callback never fired even once, instrumented directly. There is a second, unresolved gap in the delivery path beyond the two sites this session's fix corrected.
+- [ ] **Local and remote backends tested live for Tasks 4 and 6.** Local was tested live for both (W4-4's skills round-trip succeeded; W4-6's did not — see above). Remote/SSH was never tested at all — this environment has no live remote/SSH-connected Hermes backend to exercise.
 - [x] Didn't bypass the Gateway, hard-code a path/provider, or hide failures behind arbitrary delays (W4-4 explicitly routes local mode through the gateway where previously it didn't; no timeouts were widened to mask anything).
 - [x] Changes are focused per task, separated from unrelated refactoring (the one exception, `.eslintcache` untracking, is its own separate commit, not folded into any task commit).
 
 ## What's still owed for a complete submission
 
-1. **Live local/remote/SSH verification** for W4-4 and W4-6 (the checklist item above) — needs an actual running gateway in both modes.
-2. **W4-2 timing table** — needs a live multi-provider setup to produce real switch-to-ready / prompt-to-first-output numbers; the report explains why it wasn't fabricated instead.
-3. **Live demo** (submission item 7) — this is explicitly something the student must personally give; nothing here substitutes for that.
+1. **W4-6's second delivery gap.** Live testing found the fix is necessary but not sufficient: the agent-runtime side genuinely blocks waiting for a decision, but Desktop's `onApprovalRequest` never fires. See W4-6-confirmation-ui.md's "Live Verification" section for the exact evidence and the next debugging lead (verifying the session registers as a `"gateway"` approval context on the agent side). This is the single biggest open item in the whole submission.
+2. **Remote/SSH verification** for W4-4 and W4-6 — needs an actual second machine or remote Hermes deployment; not reproducible in this environment.
+3. **W4-2 timing table** — needs a live multi-provider setup to produce real switch-to-ready / prompt-to-first-output numbers; the report explains why it wasn't fabricated instead.
+4. **Live demo** (submission item 7) — this is explicitly something the student must personally give; nothing here substitutes for that.
