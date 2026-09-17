@@ -21,6 +21,7 @@ import {
 import { useFastMode } from "./hooks/useFastMode";
 import { useReasoningEffort } from "./hooks/useReasoningEffort";
 import { useLocalCommands } from "./hooks/useLocalCommands";
+import { DASHBOARD_APPROVAL_ID_PREFIX } from "./dashboardEventAdapter";
 import {
   dashboardChatEnabledForConnection,
   useDashboardChatTransport,
@@ -678,6 +679,18 @@ function Chat({
     onDashboardUnavailable: handleDashboardUnavailable,
   });
 
+  // Routes an approval decision to the transport that actually owns the
+  // request: a dashboard-transport request (synthetic id, no main-process
+  // request_id) resolves via the direct-WS client; anything else came from
+  // the IPC-based legacy/runs transports, which respondApproval already covers.
+  const handleApprovalRespond = useCallback(
+    (requestId: string, decision: string) =>
+      requestId.startsWith(DASHBOARD_APPROVAL_ID_PREFIX)
+        ? dashboardTransport.respondApprovalDirect(requestId, decision)
+        : window.hermesAPI.respondApproval(requestId, decision),
+    [dashboardTransport],
+  );
+
   const [agentCommandCatalog, setAgentCommandCatalog] =
     useState<AgentCommandsCatalogResponse | null>(null);
   const getCommandCatalog = dashboardTransport.getCommandCatalog;
@@ -1015,6 +1028,7 @@ function Chat({
               onDeny={actions.handleDeny}
               onClarifyResolved={handleClarifyResolved}
               onApprovalResolved={handleApprovalResolved}
+              onApprovalRespond={handleApprovalRespond}
               agentAvatar={agentAvatar}
             />
           )}

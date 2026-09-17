@@ -30,7 +30,7 @@ Path + symbol anchors traced during this submission, grouped by layer per the as
 
 ## Confirmation UI (W4-6)
 
-20. `src/main/hermes.ts#sendMessageViaTuiGateway` (dashboard transport's stream handler) — the `event.type === "approval.request"` branch, previously auto-answering unconditionally.
+20. `src/main/hermes.ts#sendMessageViaTuiGateway` (main-process IPC dashboard transport's stream handler) — the `event.type === "approval.request"` branch, previously auto-answering unconditionally.
 21. `src/main/hermes.ts#sendMessageViaRuns` (runs transport) — `handleRunEvent`'s `eventName === "approval.request"` branch, previously calling `stopRunAndFallback()` unconditionally.
 22. `src/main/hermes.ts#registerPendingApproval` / `resolvePendingApproval` / `clearPendingApproval` — new pending-approval registry, mirroring the pre-existing `pendingClarify` map.
 23. `src/main/hermes.ts#postRunApproval` — new POST to `/v1/runs/{run_id}/approval`, mirroring `postRunStop`'s shape.
@@ -38,9 +38,12 @@ Path + symbol anchors traced during this submission, grouped by layer per the as
 25. `src/main/ipc/register.ts` — `onApproval` callback wiring (`safeSend("chat-approval-request", req)`) and the new `approval-respond` IPC handler.
 26. `src/preload/index.ts#onApprovalRequest` / `#respondApproval` — the renderer bridge, mirroring `onClarifyRequest`/`respondClarify`.
 27. `src/renderer/src/screens/Chat/hooks/useChatIPC.ts` — the `onApprovalRequest` listener, run-scoped via `eventMatchesRun` (same guard clarify uses) so a decision can't reach the wrong conversation.
-28. `src/renderer/src/screens/Chat/ApprovalCard.tsx` — the new inline confirmation card.
+28. `src/renderer/src/screens/Chat/ApprovalCard.tsx` — the inline confirmation card, now with an optional `respond` prop so it works for both the IPC and direct-WS delivery paths.
 29. `src/renderer/src/screens/Chat/sessionHistory.ts#repositionInteractiveCards` (generalized from `repositionClarifyCards`) — history-reconcile ordering fix, now covering both clarify and approval cards.
 30. `src/renderer/src/screens/Chat/MessageRow.tsx` (`chat-approval-bar`, left unmodified) — the pre-existing legacy plain-text approval convention, distinct from the new structured card.
+30b. `src/renderer/src/screens/Chat/hooks/useDashboardChatTransport.ts` — the renderer's OWN direct-WebSocket transport (bypasses the main process entirely, and is the one actually driving the packaged app by default). `handleGatewayEvent` had zero handling for `approval.request` before this fix; now tracks `pendingApprovalSessionIdRef` and exposes `respondApprovalDirect(requestId, decision)`, which resolves the gateway's FIFO-by-session-id `approval.respond` contract directly over this connection's own client.
+30c. `src/renderer/src/screens/Chat/dashboardEventAdapter.ts#appendApprovalRequest` / `DASHBOARD_APPROVAL_ID_PREFIX` — builds an `ApprovalMessage` from the direct-WS transport's raw event payload (which never carries a `request_id`) using a synthetic id, wired into `applyDashboardStreamEvent`'s `case "approval.request"`.
+30d. `src/renderer/src/screens/Chat/Chat.tsx#handleApprovalRespond` — routes a decision to the right transport by checking `requestId.startsWith(DASHBOARD_APPROVAL_ID_PREFIX)`, since the two delivery paths (main-process IPC vs renderer direct-WS) require different resolution calls and neither can answer the other's request.
 
 ## Agent runtime (read-only — outside this repo, cited for the trace, never modified)
 
@@ -49,4 +52,4 @@ Path + symbol anchors traced during this submission, grouped by layer per the as
 33. `~/.hermes/hermes-agent/tools/approval.py#_smart_approve` / `_get_smart_policy` — the auxiliary-LLM risk pre-filter (`approve`/`deny`/`escalate`) and its operator-customizable policy override, used during live testing to force a real escalation instead of a silent auto-approve.
 34. `~/.hermes/hermes-agent/hermes_cli/config_defaults.py` (`approvals` block) — confirms `mode: "smart"` is the actual default (not `"manual"`, which is only the in-code fallback when no config is present at all).
 
-34 real anchors total (assignment requires ≥18); 4 of these are read-only citations into the Agent-runtime layer the assignment's own execution boundary names, gathered during live debugging of W4-6's unresolved gap — not modified, since that layer is outside this repository.
+38 real anchors total (assignment requires ≥18); 4 of these are read-only citations into the Agent-runtime layer the assignment's own execution boundary names, gathered during live debugging of W4-6 — not modified, since that layer is outside this repository.

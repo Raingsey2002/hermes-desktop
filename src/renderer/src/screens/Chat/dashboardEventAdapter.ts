@@ -1,6 +1,11 @@
 import type { ChatToolEvent } from "../../../../shared/chat-stream";
 import { isLossyChunkCopy } from "./lossyText";
-import type { ActiveTurn, ChatBubbleMessage, ChatMessage } from "./types";
+import type {
+  ActiveTurn,
+  ApprovalMessage,
+  ChatBubbleMessage,
+  ChatMessage,
+} from "./types";
 
 export interface DashboardStreamEvent<T = unknown> {
   payload?: T;
@@ -166,6 +171,49 @@ function appendClarifyRequest(
     ];
   }
   return [...messages, bubble];
+}
+
+/**
+ * Marker prefix for the synthetic id given to a direct-WebSocket
+ * `approval.request` (this transport's payload never carries a real
+ * `request_id` — confirmed empirically: the gateway's `_emit_approval_request`
+ * in tui_gateway/server.py never adds one). `useDashboardChatTransport.ts`'s
+ * `respondApprovalDirect` recognizes this prefix to resolve via
+ * `client.request("approval.respond", {session_id, choice, all})` — the same
+ * session-scoped, FIFO-resolved contract `tools/approval.py#resolve_gateway_approval`
+ * expects — instead of the IPC path a *different* transport (the main-process
+ * `hermes.ts` stream handlers) uses for its own `approval.request` occurrences.
+ */
+export const DASHBOARD_APPROVAL_ID_PREFIX = "dashboard-approval:";
+
+function appendApprovalRequest(
+  messages: ReadonlyArray<ChatMessage>,
+  payload: unknown,
+  sessionId: string | undefined,
+  now = Date.now(),
+): ChatMessage[] {
+  if (!isRecord(payload)) return [...messages];
+  const message = textFromPayload(payload, "message", "description", "command");
+  const tool = textFromPayload(payload, "tool", "pattern_key");
+  const choices = Array.isArray(payload.choices)
+    ? payload.choices
+        .map((choice) => stringValue(choice))
+        .filter((c) => c.trim())
+    : [];
+  const id = `${DASHBOARD_APPROVAL_ID_PREFIX}${sessionId || "default"}:${now}`;
+  const approval: ApprovalMessage = {
+    id,
+    kind: "approval",
+    role: "agent",
+    requestId: id,
+    message: message || "Hermes wants to proceed and needs your confirmation.",
+    tool: tool || undefined,
+    // "once"/"deny" are always offered by ApprovalCard itself; any extra
+    // choices this request carried (e.g. "session", "always") come from the
+    // gateway's own _approval_event_choices, not guessed here.
+    choices: choices.filter((c) => c !== "once" && c !== "deny"),
+  };
+  return [...messages, approval];
 }
 
 function toolEventFromGatewayEvent(event: DashboardStreamEvent): ChatToolEvent {
@@ -702,6 +750,16 @@ export function applyDashboardStreamEvent(
     case "clarify.request":
       return {
         messages: appendClarifyRequest(state.messages, event.payload, now),
+        reasoningSegmentClosed: true,
+      };
+    case "approval.request":
+      return {
+        messages: appendApprovalRequest(
+          state.messages,
+          event.payload,
+          event.session_id,
+          now,
+        ),
         reasoningSegmentClosed: true,
       };
     case "message.complete": {

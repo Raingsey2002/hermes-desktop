@@ -10,6 +10,15 @@ interface ApprovalCardProps {
   msg: ApprovalMessage;
   /** Mark the card resolved in parent state once the user decides. */
   onResolved: (requestId: string, decision: string) => void;
+  /**
+   * Delivers the decision to whichever transport actually owns this request.
+   * Defaults to the main-process IPC bridge (`window.hermesAPI.respondApproval`)
+   * for the legacy/runs transports; Chat.tsx overrides this for requests
+   * originating from the renderer's direct-WS dashboard transport (see
+   * `dashboardEventAdapter.ts#DASHBOARD_APPROVAL_ID_PREFIX`), which never
+   * reaches the main process at all.
+   */
+  respond?: (requestId: string, decision: string) => Promise<boolean>;
 }
 
 /**
@@ -24,6 +33,8 @@ interface ApprovalCardProps {
 export const ApprovalCard = memo(function ApprovalCard({
   msg,
   onResolved,
+  respond = (requestId, decision) =>
+    window.hermesAPI.respondApproval(requestId, decision),
 }: ApprovalCardProps): React.JSX.Element {
   const { t } = useI18n();
   const [submitting, setSubmitting] = useState(false);
@@ -36,10 +47,7 @@ export const ApprovalCard = memo(function ApprovalCard({
     setSubmitting(true);
     setError(false);
     try {
-      const ok = await window.hermesAPI.respondApproval(
-        msg.requestId,
-        decision,
-      );
+      const ok = await respond(msg.requestId, decision);
       // The IPC handler returns false when no pending request matched (e.g.
       // the turn already ended) — only flip to resolved on confirmed delivery,
       // same guard ClarifyCard uses, so a dropped response doesn't silently

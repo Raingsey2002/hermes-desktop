@@ -27,6 +27,9 @@ interface MessageListProps {
   onClarifyResolved: (requestId: string, answer: string) => void;
   /** Mark an inline approval card resolved once the user decides (W4-6). */
   onApprovalResolved: (requestId: string, decision: string) => void;
+  /** Delivers an approval decision to the transport that owns the request
+   *  (dashboard direct-WS vs main-process IPC). See ApprovalCard's `respond`. */
+  onApprovalRespond?: (requestId: string, decision: string) => Promise<boolean>;
   /** Appearance of the agent this conversation is with, so idle avatars show
    *  the agent's profile picture instead of the loading gif. */
   agentAvatar?: AgentAvatarInfo;
@@ -77,6 +80,7 @@ export const MessageList = memo(function MessageList({
   onDeny,
   onClarifyResolved,
   onApprovalResolved,
+  onApprovalRespond,
   agentAvatar,
 }: MessageListProps): React.JSX.Element {
   // Bubbles with empty content are still hidden (live-stream placeholders).
@@ -164,6 +168,7 @@ export const MessageList = memo(function MessageList({
           key={msg.id}
           msg={msg as ApprovalMessage}
           onResolved={onApprovalResolved}
+          respond={onApprovalRespond}
         />,
       );
       continue;

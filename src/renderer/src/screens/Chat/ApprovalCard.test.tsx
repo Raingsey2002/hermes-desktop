@@ -150,4 +150,29 @@ describe("ApprovalCard", () => {
     );
     expect(onResolved).not.toHaveBeenCalled();
   });
+
+  // @lat: [[confirmation-ui#Agent confirmation requests#Structured approval card (W4-6)]]
+  it("uses a custom respond resolver instead of the IPC bridge when supplied", async () => {
+    const respondApproval = stubRespond();
+    const customRespond = vi.fn().mockResolvedValue(true);
+    const onResolved = vi.fn();
+    render(
+      <ApprovalCard
+        msg={baseMsg()}
+        onResolved={onResolved}
+        respond={customRespond}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("chat.approval.approve"));
+
+    await vi.waitFor(() =>
+      expect(onResolved).toHaveBeenCalledWith("r1", "once"),
+    );
+    expect(customRespond).toHaveBeenCalledWith("r1", "once");
+    // The IPC bridge must not be touched when a custom resolver is supplied,
+    // since a dashboard-direct-WS request routed here would otherwise answer
+    // through the wrong transport (see the direct-WebSocket transport doc).
+    expect(respondApproval).not.toHaveBeenCalled();
+  });
 });

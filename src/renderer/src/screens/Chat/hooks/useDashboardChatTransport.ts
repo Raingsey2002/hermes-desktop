@@ -7,6 +7,7 @@ import {
 } from "../chatMessages";
 import {
   applyDashboardStreamEvent,
+  DASHBOARD_APPROVAL_ID_PREFIX,
   type DashboardStreamEvent,
 } from "../dashboardEventAdapter";
 import { DashboardGatewayClient } from "../dashboardGatewayClient";
@@ -126,6 +127,17 @@ interface UseDashboardChatTransportResult {
    * a `background.complete` event rendered into the transcript.
    */
   runBackground: (text: string) => Promise<{ taskId?: string; error?: string }>;
+  /**
+   * Resolve a pending `approval.request` received over this connection's
+   * direct WebSocket (see `dashboardEventAdapter.ts#appendApprovalRequest`).
+   * Returns false for a requestId this transport didn't originate (routes
+   * back to the IPC-based `window.hermesAPI.respondApproval` instead) or if
+   * there's no pending approval to resolve.
+   */
+  respondApprovalDirect: (
+    requestId: string,
+    decision: string,
+  ) => Promise<boolean>;
 }
 
 interface DashboardSeedMessage {
@@ -934,6 +946,12 @@ export function useDashboardChatTransport({
   const recreateRuntimeSessionRef = useRef(false);
   const lastRuntimeSessionWasCreatedRef = useRef(false);
   const pendingClarifyRequestIdRef = useRef<string | null>(null);
+  // Direct-WS approval.request (W4-6, second gap): unlike clarify, an
+  // approval decision isn't "the user's next composer message" — it comes
+  // from ApprovalCard's Approve/Deny buttons, so this hook needs to expose a
+  // standalone resolver (respondApprovalDirect below) rather than
+  // intercepting sendMessage the way pendingClarifyRequestIdRef does.
+  const pendingApprovalSessionIdRef = useRef<string | null>(null);
   const pendingRecoveredContinuationRef = useRef<
     DesktopSessionContinuationItem[]
   >([]);
@@ -965,6 +983,7 @@ export function useDashboardChatTransport({
     recreateRuntimeSessionRef.current = false;
     lastRuntimeSessionWasCreatedRef.current = false;
     pendingClarifyRequestIdRef.current = null;
+    pendingApprovalSessionIdRef.current = null;
     lastSyncedCwdRef.current = null;
   }, [hermesSessionId]);
 
@@ -984,6 +1003,7 @@ export function useDashboardChatTransport({
     recreateRuntimeSessionRef.current = false;
     lastRuntimeSessionWasCreatedRef.current = false;
     pendingClarifyRequestIdRef.current = null;
+    pendingApprovalSessionIdRef.current = null;
     pendingRecoveredContinuationRef.current = [];
     lastSyncedCwdRef.current = null;
   }, [connectionId, connectionMode, connectionRevision, profile]);
@@ -1129,6 +1149,19 @@ export function useDashboardChatTransport({
           setToolProgress(null);
           setIsLoading(false);
         }
+      }
+
+      if (event.type === "approval.request") {
+        // No composer intercept here (unlike clarify) — the decision comes
+        // from ApprovalCard's buttons via respondApprovalDirect below, which
+        // reads this ref for the session to resolve against. The gateway
+        // resolves FIFO per session_id, not by a request id (this payload
+        // never carries one), so the session is all respondApprovalDirect
+        // needs.
+        pendingApprovalSessionIdRef.current = event.session_id || null;
+        activeTurnRef.current = null;
+        setToolProgress(null);
+        setIsLoading(false);
       }
     },
     [
@@ -1757,6 +1790,36 @@ export function useDashboardChatTransport({
       });
   }, [enabled]);
 
+  // Resolve a direct-WS approval.request (W4-6, second gap). Unlike the
+  // IPC-based transports, this connection's approval.request never carries a
+  // request_id, and the gateway resolves it FIFO by session_id (see
+  // tools/approval.py#resolve_gateway_approval), so this sends `choice`
+  // straight to the live client for the session that's actually waiting —
+  // not through the main process (which never saw this event) and not
+  // keyed by the requestId string ApprovalCard passes (only used here to
+  // confirm the caller is resolving the pending one, not a stale card from a
+  // superseded session).
+  const respondApprovalDirect = useCallback(
+    async (requestId: string, decision: string): Promise<boolean> => {
+      const client = clientRef.current;
+      const pendingSessionId = pendingApprovalSessionIdRef.current;
+      if (!enabled || !client || pendingSessionId === null) return false;
+      if (!requestId.startsWith(DASHBOARD_APPROVAL_ID_PREFIX)) return false;
+      pendingApprovalSessionIdRef.current = null;
+      try {
+        await client.request("approval.respond", {
+          session_id: pendingSessionId || runtimeSessionIdRef.current,
+          choice: decision === "deny" ? "deny" : decision,
+          all: false,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [enabled],
+  );
+
   useEffect(
     () => () => {
       clientRef.current?.close();
@@ -1772,5 +1835,6 @@ export function useDashboardChatTransport({
     execSlash,
     getCommandCatalog,
     runBackground,
+    respondApprovalDirect,
   };
 }

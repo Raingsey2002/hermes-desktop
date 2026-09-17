@@ -3,9 +3,10 @@ import { describe, it, expect } from "vitest";
 import {
   applyDashboardStreamEvent,
   mergeStreamedWithFinal,
+  DASHBOARD_APPROVAL_ID_PREFIX,
   type DashboardEventState,
 } from "./dashboardEventAdapter";
-import type { ChatMessage } from "./types";
+import type { ApprovalMessage, ChatMessage } from "./types";
 
 describe("mergeStreamedWithFinal", () => {
   it("uses final when nothing was streamed (remote / suppressed-delta path)", () => {
@@ -207,5 +208,90 @@ describe("applyDashboardStreamEvent — message.complete text reconciliation", (
     const bubble = next.messages.find((m) => m.role === "agent");
     expect(bubble).toBeDefined();
     expect((bubble as { content: string }).content).toBe("Remote answer");
+  });
+});
+
+// @lat: [[confirmation-ui#Agent confirmation requests#Structured approval card (W4-6)#Direct-WebSocket transport (W4-6)]]
+describe("applyDashboardStreamEvent — approval.request (direct-WS transport)", () => {
+  const userTurn = (): ChatMessage => ({
+    id: "u1",
+    role: "user",
+    content: "run the deploy script",
+  });
+
+  it("appends an ApprovalMessage with a synthetic, session-scoped id", () => {
+    const state: DashboardEventState = {
+      messages: [userTurn()],
+      reasoningSegmentClosed: false,
+    };
+
+    const next = applyDashboardStreamEvent(state, {
+      type: "approval.request",
+      session_id: "sess-42",
+      payload: { message: "Run `chmod 777 x`?", tool: "shell" },
+    });
+
+    const card = next.messages.find((m) => m.kind === "approval") as
+      | ApprovalMessage
+      | undefined;
+    expect(card).toBeDefined();
+    expect(card?.requestId).toBe(card?.id);
+    expect(card?.id.startsWith(`${DASHBOARD_APPROVAL_ID_PREFIX}sess-42:`)).toBe(
+      true,
+    );
+    expect(card?.message).toBe("Run `chmod 777 x`?");
+    expect(card?.tool).toBe("shell");
+    expect(next.reasoningSegmentClosed).toBe(true);
+  });
+
+  it("falls back to a default message when the payload carries none", () => {
+    const state: DashboardEventState = {
+      messages: [userTurn()],
+      reasoningSegmentClosed: false,
+    };
+
+    const next = applyDashboardStreamEvent(state, {
+      type: "approval.request",
+      session_id: "sess-1",
+      payload: {},
+    });
+
+    const card = next.messages.find((m) => m.kind === "approval") as
+      | ApprovalMessage
+      | undefined;
+    expect(card?.message).toMatch(/confirmation/i);
+  });
+
+  it("drops the gateway's own once/deny choices, keeping only extras like 'always'", () => {
+    const state: DashboardEventState = {
+      messages: [userTurn()],
+      reasoningSegmentClosed: false,
+    };
+
+    const next = applyDashboardStreamEvent(state, {
+      type: "approval.request",
+      session_id: "sess-1",
+      payload: { message: "Proceed?", choices: ["once", "deny", "always"] },
+    });
+
+    const card = next.messages.find((m) => m.kind === "approval") as
+      | ApprovalMessage
+      | undefined;
+    expect(card?.choices).toEqual(["always"]);
+  });
+
+  it("ignores a non-object payload without throwing", () => {
+    const state: DashboardEventState = {
+      messages: [userTurn()],
+      reasoningSegmentClosed: false,
+    };
+
+    const next = applyDashboardStreamEvent(state, {
+      type: "approval.request",
+      session_id: "sess-1",
+      payload: null,
+    });
+
+    expect(next.messages.some((m) => m.kind === "approval")).toBe(false);
   });
 });
