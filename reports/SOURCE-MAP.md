@@ -13,7 +13,7 @@ Path + symbol anchors traced during this submission, grouped by layer per the as
 7. `src/main/hermes.ts#effectiveModelConfig` — overlays a `SessionModelOverride` onto the persisted `config.yaml` model config for the legacy/API send path.
 8. `src/renderer/src/screens/Providers/Providers.tsx` — former "Active Model" card (removed; was the actual display/runtime-divergent surface).
 9. `src/renderer/src/screens/Layout/StatusBar.tsx` — former model chip (removed, same reason).
-9b. `~/.hermes/hermes-agent` Gemini provider integration (read-only, outside this repo — exact file not isolated in this session) — the source of the live-reproduced `thinking_config` HTTP 400 on every Gemini turn post-switch; see W4-2's report for the full evidence.
+9b. `~/.hermes/hermes-agent` (@ `42708f8` / v0.20.0, read-only, outside this repo) `plugins/model-providers/gemini/__init__.py#GeminiProfile.build_extra_body` line 47 — puts `thinking_config` at the top level of the request body for the native (non-`/openai`-compat) Gemini endpoint, a shape the live API rejects; the sibling `agent/transports/chat_completions.py#_build_gemini_thinking_config` (lines 86–139) already documents this exact "Unknown name" failure mode for a different case (Gemma models) but doesn't guard the endpoint-shape case. Root cause of the live-reproduced HTTP 400 on every Gemini turn post-switch — see W4-2's report for the full evidence.
 
 ## Skills — upload, path unification, chat selection (W4-3, W4-4, W4-5)
 
