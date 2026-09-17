@@ -2,6 +2,8 @@
 
 One report per task, each independently reviewable via its own git commit on the `week4-homework` branch.
 
+**[SUBMISSION.md](./SUBMISSION.md)** is the single consolidated document for grading — it summarizes all six tasks, the source map, the Task 2 timing table, and the git history mapped one-commit-per-task in one place. The per-task files below remain the full-detail reports it summarizes.
+
 | Task | Report | Commit | Code change? |
 |---|---|---|---|
 | W4-1 — Provider display vs runtime | [W4-1-provider-display.md](./W4-1-provider-display.md) | `c8cef20` | No — root cause already fixed earlier this session; documented |
