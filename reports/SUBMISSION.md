@@ -49,7 +49,7 @@ This document consolidates the assignment's six required deliverables into one p
 
 **Fix.** None in this repo — the failure boundary sits in the agent runtime, outside this assignment's stated scope. Desktop's own part of the job (routing to the right endpoint/key) is confirmed correct: the request reaches Gemini and gets a real structured error back, not a Desktop-side routing failure or a silent stale fallback.
 
-**Timing table** (composer-submit → first rendered content, same conversation, 3 turns before/after a live switch from `deepseek-flash` to `gemini-2.5-flash`):
+**Timing table — Gemini run** (composer-submit → first rendered content, same conversation, 3 turns before/after a live switch from `deepseek-flash` to `gemini-2.5-flash`):
 
 | Run | Provider | Result | Time to first output |
 |---|---|---|---|
@@ -62,7 +62,20 @@ This document consolidates the assignment's six required deliverables into one p
 
 The post-switch numbers are honestly time-to-error, not time-to-success — every attempt failed identically, but fast and deterministic (~5-7s), not a hang or retry storm.
 
-**Tests.** No new test (runtime/provider integration failure, not a Desktop defect); full suite reconfirmed passing.
+**Timing table — re-verified with the current provider set** (the Gemini key was later removed from this environment; the two providers actually configured now are DeepSeek and OpenRouter/`amazon/nova-lite-v1`). Re-ran the identical protocol against this pair:
+
+| Run | Provider | Result | Time to first output |
+|---|---|---|---|
+| baseline-1 | deepseek-flash | success | 11.13 s *(cold start)* |
+| baseline-2 | deepseek-flash | success | 2.06 s |
+| baseline-3 | deepseek-flash | success | 2.03 s |
+| switch-1 | amazon/nova-lite-v1 (OpenRouter) | **success** | 7.14 s |
+| switch-2 | amazon/nova-lite-v1 (OpenRouter) | **success** | 4.09 s |
+| switch-3 | amazon/nova-lite-v1 (OpenRouter) | **success** | 2.02 s |
+
+All six turns produced genuine, distinct, on-topic answers (verified by reading the rendered transcript, not just checking for an absent error). This confirms the switch mechanism itself has no inherent defect — the earlier failure was specific to Gemini's native-endpoint request shape (an external agent-runtime bug), not a general property of provider switching. The first post-switch turn costing more than the next two matches the "one extra round trip on the first call after a change" pattern the code trace already predicted, not a new anomaly.
+
+**Tests.** No new automated test (runtime/provider integration failure, not a Desktop defect); full suite reconfirmed passing. The re-verification above is a second live reproduction, not an automated test.
 
 **Risk.** The tempting "fix" — catch the 400 and silently retry without `thinking_config` — would be a workaround belonging in the agent runtime, not Desktop, which never constructs that payload itself.
 
