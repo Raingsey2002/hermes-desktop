@@ -13,6 +13,7 @@ Path + symbol anchors traced during this submission, grouped by layer per the as
 7. `src/main/hermes.ts#effectiveModelConfig` — overlays a `SessionModelOverride` onto the persisted `config.yaml` model config for the legacy/API send path.
 8. `src/renderer/src/screens/Providers/Providers.tsx` — former "Active Model" card (removed; was the actual display/runtime-divergent surface).
 9. `src/renderer/src/screens/Layout/StatusBar.tsx` — former model chip (removed, same reason).
+9b. `~/.hermes/hermes-agent` Gemini provider integration (read-only, outside this repo — exact file not isolated in this session) — the source of the live-reproduced `thinking_config` HTTP 400 on every Gemini turn post-switch; see W4-2's report for the full evidence.
 
 ## Skills — upload, path unification, chat selection (W4-3, W4-4, W4-5)
 

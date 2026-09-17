@@ -4,7 +4,7 @@
 
 **Reported:** switching providers/models from the chat composer may cause Agent initialization failure, stale credentials/base URL usage, or a much longer response path from repeated initialization, retries, reconnection, or partially-applied state.
 
-**Reproduction attempted:** instrumented (by reading, since a live multi-provider account wasn't available in this environment) the full switch path: user selection → `slash.exec "/model ... --provider ..."` → readiness check → next prompt → first output, on both the dashboard transport and the legacy/CLI fallback, looking specifically for duplicate requests, unbounded retries, and unnecessary re-initialization.
+**Reproduction:** first traced by reading (no second provider was configured yet). Once a second provider (`GOOGLE_API_KEY`, Gemini) was added, reproduced live via a Playwright-driven run of the packaged app against the real local gateway: 3 baseline turns on the default provider (DeepSeek), then a chat-picker switch to a newly-added `gemini-2.5-flash` model, then 3 more turns on the new provider — timestamping composer-submit to first rendered content for each.
 
 ## Call / State Trace
 
@@ -16,20 +16,33 @@
 
 ## Root Cause
 
-No retry-storm, duplicate-request, or unbounded-init bug was found in the dashboard transport's switch logic — it already has a cache-key guard and a single bounded retry. The one real, measurable overhead source is `shouldForceCliForSessionOverride`: it is **documented as intentional** ("Legacy CLI is only a safe session-override escape hatch for text-only turns," `hermes.ts:2438`) — a deliberate trade-off for provider/baseUrl combinations the API path can't route, not an oversight. It is a genuine per-message latency cost (subprocess spawn vs. a warm connection) on the legacy/auto transport specifically, not a defect to remove, since removing it would mean some cross-provider overrides have *no* working path on that transport at all.
+No retry-storm, duplicate-request, or unbounded-init bug was found in the dashboard transport's switch logic — it already has a cache-key guard and a single bounded retry. The one *routing-level* overhead source is `shouldForceCliForSessionOverride`: it is **documented as intentional** ("Legacy CLI is only a safe session-override escape hatch for text-only turns," `hermes.ts:2438`) — a deliberate trade-off, not an oversight.
+
+**Live testing found a real, separate failure**, though, once a second provider actually existed to switch to: every turn sent to Gemini after the switch failed with `HTTP 400: Invalid JSON payload received. Unknown name "thinking_config": Cannot find field.` (`status: INVALID_ARGUMENT`), reproduced identically on all 3 post-switch turns. This is a genuine "provider switch causes agent failure" symptom, matching this task's title precisely — but the root cause sits **upstream of Desktop**, in the agent runtime's Gemini request-payload construction (outside this repo, in `~/.hermes/hermes-agent`, not modified): something translates `agent.reasoning_effort` (config.yaml has `medium`) into a `thinking_config` field on the Gemini API call, using a name/shape the live Gemini API rejects outright. Desktop's own part of the job — routing the switched session to the Gemini endpoint with the right key — worked: the request demonstrably reached Gemini's API and got a structured `google.rpc.BadRequest` back, not a Desktop-side routing error, a timeout, or a silent fallback to the previous provider.
 
 ## Fix
 
-No code change made. This task's deliverable is the trace and root-cause determination above: the switch path is already atomic (validates before reporting success, via the `dashboardModelMatches` throw) and does not leave a half-switched session on failure — a failed `switchAndValidate` throws, which the caller surfaces as a chat error without mutating `appliedModelRef`, so the next attempt starts from the last **known-good** cache state rather than a corrupted one.
+No code change made to this repository. The failure's fix boundary is the agent runtime's Gemini provider integration, outside Hermes Desktop's scope (per the assignment's own layering — "Agent runtime" is a separate ownership layer from "Desktop UI, shared Gateway client, tui_gateway"). What *is* in scope and already correct: the switch path is atomic and does not leave a half-switched session on this failure — a failed turn surfaces as a normal chat error bubble without corrupting `appliedModelRef`'s cache state, so the next attempt (even against the same broken provider) starts clean rather than compounding.
 
 ## Tests
 
-No new tests required — this task did not change behavior. Confirmed via the existing test suite that the switch/dashboard-transport logic remains exercised and passing (`npx vitest run`, 199 files / 1968 passing).
+No new tests added — this is a runtime/provider integration failure, not a Desktop code defect to regression-test. Confirmed via the existing test suite that the switch/dashboard-transport logic remains exercised and passing (`npx vitest run`, 200 files / 1974 passing).
 
 ## Timing Evidence
 
-**Not collected.** Producing the required 3-run before/after timing table needs a live Hermes gateway with at least two configured providers actually reachable over the network, which this development environment does not have (no live provider credentials configured). Since no code changed for this task, there is no "before" vs. "after" to compare — the honest timing claim is: the switch-time overhead is 0 extra round trips on a same-provider turn (cache hit), ~2-3 round trips on a genuine switch (cache miss), and per-message CLI-subprocess spawn overhead only while an active session override forces the legacy transport off the persistent connection. A live run against real providers would be needed to turn those round-trip counts into wall-clock numbers; that verification is flagged as a manual step still owed for this submission.
+Collected live (3 runs before, 3 after switching from `deepseek-flash` to `gemini-2.5-flash` via the chat-input picker, same conversation, composer-submit → first rendered content):
+
+| Run | Provider | Result | Time to first output |
+|---|---|---|---|
+| baseline-1 | deepseek-flash | success ("ready") | 10.09 s *(cold-start turn — gateway/session not yet warm)* |
+| baseline-2 | deepseek-flash | success ("ready") | 2.02 s |
+| baseline-3 | deepseek-flash | success ("ready") | 1.64 s |
+| switch-1 | gemini-2.5-flash | **failed — HTTP 400 thinking_config** | 5.05 s |
+| switch-2 | gemini-2.5-flash | **failed — HTTP 400 thinking_config** | 6.63 s |
+| switch-3 | gemini-2.5-flash | **failed — HTTP 400 thinking_config** | 6.60 s |
+
+Reading these honestly: the "switch" numbers are *time-to-error*, not time-to-successful-response — there is no successful post-switch timing to report because every attempt failed identically. The one thing this does establish cleanly: the failure surfaces in ~5–7 s, not a 30+ s hang or a silent retry loop — consistent with the earlier code-trace finding that there's no retry storm, just a fast, deterministic rejection from Gemini's API on every attempt.
 
 ## Regression Risk
 
-None from this task — no code was changed. The risk being managed is *interpretive*: it would be easy to "fix" the CLI-fallback overhead by loosening `shouldForceCliForSessionOverride`'s condition, but doing so without understanding why it exists (per `model-selection.md`'s documented explanation) would silently break cross-provider switching for the provider combinations that condition exists to cover — exactly the kind of masking-with-a-workaround the assignment explicitly warns against ("Do not mask the problem with a longer timeout alone").
+None from Desktop's side — no Desktop code was changed. The risk worth naming: it would be tempting to "fix" this by catching the Gemini 400 and silently retrying without `thinking_config`, but that's exactly the kind of workaround-instead-of-root-cause-fix the assignment warns against, and it would need to happen in the agent runtime (where the field is actually added to the payload), not in Desktop, which never constructs that payload itself.
